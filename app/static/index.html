@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flight Delay Predictor — Live Globe</title>
+  <style>
+    :root {
+      --bg: #05070d;
+      --panel: rgba(14, 20, 34, 0.82);
+      --border: rgba(120, 150, 200, 0.18);
+      --text: #e6ecf5;
+      --muted: #8a98b0;
+      --green: #34c759;
+      --yellow: #ffd60a;
+      --amber: #ff9500;
+      --red: #ff3b30;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    #globeViz { position: absolute; inset: 0; }
+
+    .sidebar {
+      position: absolute; top: 0; left: 0; bottom: 0; width: 360px; max-width: 90vw;
+      background: var(--panel); backdrop-filter: blur(14px);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; z-index: 10;
+    }
+    .sidebar header { padding: 20px 20px 14px; border-bottom: 1px solid var(--border); }
+    .sidebar h1 { font-size: 17px; margin: 0 0 4px; letter-spacing: 0.2px; }
+    .sidebar .sub { font-size: 12px; color: var(--muted); }
+
+    .stats { display: flex; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+    .stat { flex: 1; background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px; }
+    .stat .num { font-size: 22px; font-weight: 600; }
+    .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+    .stat.risk .num { color: var(--red); }
+
+    .controls { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+    button { background: #2b6cff; color: #fff; border: 0; border-radius: 8px; padding: 9px 14px;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: progress; }
+    .auto { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+    .list { flex: 1; overflow-y: auto; padding: 8px 12px 20px; }
+    .flight { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px;
+      cursor: pointer; transition: background .12s; }
+    .flight:hover { background: rgba(255,255,255,0.05); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+    .flight .meta { flex: 1; min-width: 0; }
+    .flight .route { font-size: 13px; font-weight: 600; }
+    .flight .reasons { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .flight .score { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .badge { font-size: 9px; font-weight: 700; color: var(--red); border: 1px solid var(--red);
+      border-radius: 5px; padding: 1px 4px; margin-left: 6px; }
+
+    .legend { position: absolute; bottom: 16px; right: 16px; z-index: 10; background: var(--panel);
+      border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 12px; }
+    .legend .row { display: flex; align-items: center; gap: 8px; margin: 3px 0; color: var(--muted); }
+
+    .toast { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 20;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 18px; font-size: 13px; display: none; }
+    .empty { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="globeViz"></div>
+
+  <aside class="sidebar">
+    <header>
+      <h1>Flight Delay Predictor</h1>
+      <div class="sub" id="hub">Hub: — · weather-driven risk</div>
+    </header>
+    <div class="stats">
+      <div class="stat"><div class="num" id="statTotal">0</div><div class="lbl">Flights</div></div>
+      <div class="stat risk"><div class="num" id="statRisk">0</div><div class="lbl">High risk</div></div>
+    </div>
+    <div class="controls">
+      <button id="runBtn">Refresh data</button>
+      <label class="auto"><input type="checkbox" id="autoChk" checked /> auto-refresh</label>
+    </div>
+    <div class="list" id="list"><div class="empty">Loading…</div></div>
+  </aside>
+
+  <div class="legend">
+    <div class="row"><span class="dot" style="background:var(--red)"></span> High risk of delay</div>
+    <div class="row"><span class="dot" style="background:var(--amber)"></span> Elevated</div>
+    <div class="row"><span class="dot" style="background:var(--yellow)"></span> Minor</div>
+    <div class="row"><span class="dot" style="background:var(--green)"></span> Low risk</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://unpkg.com/globe.gl"></script>
+  <script>
+    const POLL_MS = 6000;
+    let world, pollTimer;
+
+    function initGlobe() {
+      world = Globe()(document.getElementById('globeViz'))
+        .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-night.jpg')
+        .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+        .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
+        .arcColor('color')
+        .arcAltitudeAutoScale(0.4)
+        .arcStroke(0.6)
+        .arcDashLength(0.4)
+        .arcDashGap(0.18)
+        .arcDashAnimateTime(d => 2200 - Math.min(d.score, 100) * 14)
+        .arcLabel(d => `
+          <div style="font:13px/1.4 -apple-system,sans-serif;color:#fff;background:rgba(8,12,22,.92);
+            padding:8px 11px;border-radius:8px;border:1px solid ${d.color}">
+            <b>${d.flight_ident}</b> &nbsp; ${d.origin} → ${d.destination}<br/>
+            <span style="color:#8a98b0">${d.origin_name} → ${d.destination_name}</span><br/>
+            <b style="color:${d.color}">Risk score: ${d.score}</b>${d.high_risk ? ' — HIGH RISK' : ''}<br/>
+            <span style="color:#8a98b0">${d.reasons || 'no risk factors'}</span>
+          </div>`)
+        .pointColor('color')
+        .pointAltitude(0.01)
+        .pointRadius(0.32)
+        .pointLabel(d => `<div style="font:12px -apple-system,sans-serif;color:#fff">${d.name} (${d.icao})</div>`);
+
+      const controls = world.controls();
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.6;
+      world.pointOfView({ lat: 39, lng: -95, altitude: 2.1 }, 0);
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.style.display = 'block';
+    }
+    function hideToast() { document.getElementById('toast').style.display = 'none'; }
+
+    function buildPoints(arcs) {
+      const seen = new Map();
+      for (const a of arcs) {
+        if (!seen.has(a.origin))
+          seen.set(a.origin, { icao: a.origin, name: a.origin_name, lat: a.startLat, lng: a.startLng, color: '#4da6ff' });
+        if (!seen.has(a.destination))
+          seen.set(a.destination, { icao: a.destination, name: a.destination_name, lat: a.endLat, lng: a.endLng, color: '#9fb3c8' });
+      }
+      return [...seen.values()];
+    }
+
+    function renderList(arcs, threshold) {
+      const list = document.getElementById('list');
+      if (!arcs.length) { list.innerHTML = '<div class="empty">No predictions yet. Click “Refresh data”.</div>'; return; }
+      list.innerHTML = '';
+      for (const a of arcs) {
+        const row = document.createElement('div');
+        row.className = 'flight';
+        row.innerHTML = `
+          <span class="dot" style="background:${a.color}"></span>
+          <div class="meta">
+            <div class="route">${a.flight_ident} · ${a.origin}→${a.destination}
+              ${a.high_risk ? '<span class="badge">HIGH</span>' : ''}</div>
+            <div class="reasons">${a.reasons || 'no risk factors'}</div>
+          </div>
+          <div class="score" style="color:${a.color}">${a.score}</div>`;
+        row.onclick = () => world.pointOfView(
+          { lat: (a.startLat + a.endLat) / 2, lng: (a.startLng + a.endLng) / 2, altitude: 1.6 }, 900);
+        list.appendChild(row);
+      }
+    }
+
+    async function loadData() {
+      try {
+        const res = await fetch('/globe-data');
+        const data = await res.json();
+        const arcs = data.arcs || [];
+        world.arcsData(arcs).pointsData(buildPoints(arcs));
+        document.getElementById('statTotal').textContent = arcs.length;
+        document.getElementById('statRisk').textContent = arcs.filter(a => a.high_risk).length;
+        renderList(arcs, data.threshold);
+        if (!arcs.length) await runPipeline();  // auto-populate on first ever load
+      } catch (e) { showToast('Could not reach backend'); setTimeout(hideToast, 2500); }
+    }
+
+    async function runPipeline() {
+      const btn = document.getElementById('runBtn');
+      btn.disabled = true; showToast('Fetching live weather & scoring flights…');
+      try {
+        await fetch('/run', { method: 'POST' });
+        hideToast();
+        await loadData();
+      } catch (e) { showToast('Run failed'); setTimeout(hideToast, 2500); }
+      finally { btn.disabled = false; }
+    }
+
+    function setupPolling() {
+      const chk = document.getElementById('autoChk');
+      const start = () => { stop(); if (chk.checked) pollTimer = setInterval(loadData, POLL_MS); };
+      const stop = () => { if (pollTimer) clearInterval(pollTimer); };
+      chk.onchange = start; start();
+    }
+
+    document.getElementById('runBtn').onclick = runPipeline;
+
+    fetch('/info').then(r => r.json()).then(d => {
+      document.getElementById('hub').textContent =
+        `Hub: ${d.default_airport} · high-risk ≥ ${d.high_risk_threshold} pts`;
+    });
+
+    initGlobe();
+    loadData();
+    setupPolling();
+  </script>
+</body>
+</html>

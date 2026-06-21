@@ -1,0 +1,26 @@
+{
+  "origin": "KBOS",
+  "description": "Cached sample of scheduled departures out of Boston Logan. 'depart_offset_minutes' is relative to the moment the pipeline runs, so there are always upcoming flights to score. Replace this provider with AeroAPI later for live data.",
+  "flights": [
+    { "ident": "JBU1201", "destination": "KJFK", "depart_offset_minutes": 35, "inbound_delayed": false },
+    { "ident": "AAL456",  "destination": "KORD", "depart_offset_minutes": 50, "inbound_delayed": true  },
+    { "ident": "DAL782",  "destination": "KATL", "depart_offset_minutes": 65, "inbound_delayed": false },
+    { "ident": "UAL339",  "destination": "KSFO", "depart_offset_minutes": 80, "inbound_delayed": false },
+    { "ident": "JBU88",   "destination": "KLAX", "depart_offset_minutes": 95, "inbound_delayed": false },
+    { "ident": "AAL1099", "destination": "KDFW", "depart_offset_minutes": 110, "inbound_delayed": true },
+    { "ident": "DAL215",  "destination": "KDTW", "depart_offset_minutes": 125, "inbound_delayed": false },
+    { "ident": "JBU617",  "destination": "KFLL", "depart_offset_minutes": 140, "inbound_delayed": false },
+    { "ident": "UAL512",  "destination": "KIAD", "depart_offset_minutes": 155, "inbound_delayed": false },
+    { "ident": "AAL73",   "destination": "KPHL", "depart_offset_minutes": 170, "inbound_delayed": false },
+    { "ident": "JBU2240", "destination": "KMCO", "depart_offset_minutes": 185, "inbound_delayed": true },
+    { "ident": "DAL944",  "destination": "KSLC", "depart_offset_minutes": 200, "inbound_delayed": false },
+    { "ident": "B6711",   "destination": "KSEA", "depart_offset_minutes": 215, "inbound_delayed": false },
+    { "ident": "AAL1620", "destination": "KMIA", "depart_offset_minutes": 230, "inbound_delayed": false },
+    { "ident": "UAL27",   "destination": "KDEN", "depart_offset_minutes": 245, "inbound_delayed": false },
+    { "ident": "DAL1330", "destination": "KMSP", "depart_offset_minutes": 260, "inbound_delayed": true },
+    { "ident": "JBU405",  "destination": "KRSW", "depart_offset_minutes": 275, "inbound_delayed": false },
+    { "ident": "AAL890",  "destination": "KCLT", "depart_offset_minutes": 290, "inbound_delayed": false },
+    { "ident": "UAL1144", "destination": "KEWR", "depart_offset_minutes": 305, "inbound_delayed": false },
+    { "ident": "DAL66",   "destination": "KLGA", "depart_offset_minutes": 320, "inbound_delayed": false }
+  ]
+}
