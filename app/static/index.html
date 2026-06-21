@@ -102,7 +102,7 @@
 
     function initGlobe() {
       world = Globe()(document.getElementById('globeViz'))
-        .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-night.jpg')
+        .globeImageUrl('/static/textures/earth-night-8k.jpg')
         .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
         .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
         .arcColor('color')
@@ -123,6 +123,24 @@
         .pointAltitude(0.01)
         .pointRadius(0.32)
         .pointLabel(d => `<div style="font:12px -apple-system,sans-serif;color:#fff">${d.name} (${d.icao})</div>`);
+
+      // Render at the display's native pixel density (capped at 2x) so the
+      // globe is sharp on Retina/HiDPI screens instead of being upscaled.
+      const renderer = world.renderer();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const texAniso = renderer.capabilities.getMaxAnisotropy();
+
+      // Crisp the globe texture with anisotropic filtering once it loads.
+      const sharpenGlobeTexture = () => {
+        const mat = world.globeMaterial();
+        if (mat && mat.map) {
+          mat.map.anisotropy = texAniso;
+          mat.map.needsUpdate = true;
+        } else {
+          setTimeout(sharpenGlobeTexture, 200);
+        }
+      };
+      sharpenGlobeTexture();
 
       const controls = world.controls();
       controls.autoRotate = true;
