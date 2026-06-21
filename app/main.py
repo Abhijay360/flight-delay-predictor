@@ -55,14 +55,14 @@ def info() -> dict:
 
 @app.post("/run")
 def run(
-    airport: str = Query(default=None, description="ICAO code; defaults to configured hub"),
+    airport: str = Query(default=None, description="ICAO code for one hub; omit to score all hubs"),
     limit: int = Query(default=None, ge=1, le=200),
     session: Session = Depends(get_session),
 ) -> dict:
     scored: list[ScoredFlight] = run_pipeline(airport=airport, limit=limit, session=session)
     high_risk = [s for s in scored if s.risk.high_risk]
     return {
-        "airport": (airport or settings.default_airport).upper(),
+        "airport": airport.upper() if airport else "ALL_HUBS",
         "scored": len(scored),
         "high_risk": len(high_risk),
         "flights": [s.model_dump() for s in scored],

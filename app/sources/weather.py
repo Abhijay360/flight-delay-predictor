@@ -24,19 +24,39 @@ class NoaaWeatherClient:
         The returned dict includes a `fcsts` list of forecast segments.
         """
         airport = airport.upper()
-        if airport in self._taf_cache:
-            return self._taf_cache[airport]
+        if airport not in self._taf_cache:
+            self.get_tafs([airport])
+        return self._taf_cache.get(airport)
 
-        url = f"{self.base_url}/taf"
-        params = {"ids": airport, "format": "json"}
-        try:
-            resp = httpx.get(url, params=params, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
-        except (httpx.HTTPError, ValueError):
-            self._taf_cache[airport] = None
-            return None
+    def get_tafs(self, airports: list[str]) -> dict[str, dict | None]:
+        """Fetch TAFs for many airports in a single request.
 
-        taf = data[0] if isinstance(data, list) and data else None
-        self._taf_cache[airport] = taf
-        return taf
+        NOAA accepts a comma-separated `ids` list, so this turns what used to be
+        dozens of sequential calls into one. Results are cached per airport;
+        only uncached airports trigger a network call.
+        """
+        wanted = [a.upper() for a in airports]
+        missing = [a for a in wanted if a not in self._taf_cache]
+
+        if missing:
+            url = f"{self.base_url}/taf"
+            params = {"ids": ",".join(missing), "format": "json"}
+            try:
+                resp = httpx.get(url, params=params, timeout=self.timeout)
+                resp.raise_for_status()
+                data = resp.json()
+            except (httpx.HTTPError, ValueError):
+                data = []
+
+            by_id: dict[str, dict] = {}
+            if isinstance(data, list):
+                for taf in data:
+                    icao = (taf.get("icaoId") or "").upper()
+                    # Keep the most recent TAF if an airport appears more than once.
+                    if icao and (icao not in by_id or taf.get("mostRecent")):
+                        by_id[icao] = taf
+
+            for code in missing:
+                self._taf_cache[code] = by_id.get(code)
+
+        return {a: self._taf_cache.get(a) for a in wanted}

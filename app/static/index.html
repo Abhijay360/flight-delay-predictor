@@ -221,7 +221,7 @@
 
     fetch('/info').then(r => r.json()).then(d => {
       document.getElementById('hub').textContent =
-        `Hub: ${d.default_airport} · high-risk ≥ ${d.high_risk_threshold} pts`;
+        `Multiple US hubs · high-risk ≥ ${d.high_risk_threshold} pts`;
     });
 
     initGlobe();

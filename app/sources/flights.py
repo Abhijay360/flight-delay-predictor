@@ -22,31 +22,50 @@ class FlightProvider(Protocol):
     def get_scheduled_departures(self, airport: str, limit: int) -> list[Flight]:
         ...
 
+    def get_all_departures(self) -> list[Flight]:
+        ...
+
+    def get_hubs(self) -> list[str]:
+        ...
+
 
 class MockFlightProvider:
-    """Serves cached sample departures with departure times relative to now."""
+    """Serves cached sample departures (across multiple hubs) with departure
+    times relative to now."""
 
     def __init__(self, data_file: Path = DATA_FILE) -> None:
         self.data_file = data_file
 
-    def get_scheduled_departures(self, airport: str, limit: int) -> list[Flight]:
-        payload = json.loads(self.data_file.read_text())
-        origin = payload.get("origin", airport)
-        now = datetime.now(timezone.utc)
+    def _load(self) -> dict:
+        return json.loads(self.data_file.read_text())
 
-        flights: list[Flight] = []
-        for record in payload["flights"][:limit]:
-            scheduled_out = now + timedelta(minutes=record["depart_offset_minutes"])
-            flights.append(
-                Flight(
-                    ident=record["ident"],
-                    origin=origin,
-                    destination=record["destination"],
-                    scheduled_out=scheduled_out,
-                    inbound_delayed=record.get("inbound_delayed", False),
-                )
-            )
-        return flights
+    def _to_flight(self, record: dict, now: datetime, fallback_origin: str | None = None) -> Flight:
+        return Flight(
+            ident=record["ident"],
+            origin=(record.get("origin") or fallback_origin).upper(),
+            destination=record["destination"].upper(),
+            scheduled_out=now + timedelta(minutes=record["depart_offset_minutes"]),
+            inbound_delayed=record.get("inbound_delayed", False),
+        )
+
+    def get_hubs(self) -> list[str]:
+        return [h.upper() for h in self._load().get("hubs", [])]
+
+    def get_all_departures(self) -> list[Flight]:
+        payload = self._load()
+        now = datetime.now(timezone.utc)
+        return [self._to_flight(r, now) for r in payload["flights"]]
+
+    def get_scheduled_departures(self, airport: str, limit: int) -> list[Flight]:
+        airport = airport.upper()
+        payload = self._load()
+        now = datetime.now(timezone.utc)
+        flights = [
+            self._to_flight(r, now, fallback_origin=airport)
+            for r in payload["flights"]
+            if (r.get("origin") or airport).upper() == airport
+        ]
+        return flights[:limit]
 
 
 # Placeholder for the future live provider. Implement `get_scheduled_departures`

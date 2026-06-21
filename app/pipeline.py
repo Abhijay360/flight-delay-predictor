@@ -9,9 +9,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.airports import remember_airport
 from app.config import settings
 from app.db import SessionLocal, init_db
-from app.models import Prediction, ScoredFlight
+from app.models import Flight, Prediction, ScoredFlight
 from app.parsing.taf import build_weather_window
 from app.scoring.risk import get_default_scorer
 from app.sources.flights import get_default_provider
@@ -24,20 +25,36 @@ def run_pipeline(
     persist: bool = True,
     session: Session | None = None,
 ) -> list[ScoredFlight]:
-    airport = (airport or settings.default_airport).upper()
-    limit = limit or settings.flight_limit
+    """Score upcoming departures.
 
-    flights = get_default_provider().get_scheduled_departures(airport, limit)
+    Pass an `airport` to score a single hub; pass `airport=None` to score every
+    hub in the dataset. Weather for all involved airports is fetched in a single
+    batched request.
+    """
+    provider = get_default_provider()
+    if airport:
+        flights: list[Flight] = provider.get_scheduled_departures(
+            airport.upper(), limit or settings.flight_limit
+        )
+    else:
+        flights = provider.get_all_departures()
+
     weather = NoaaWeatherClient()
     scorer = get_default_scorer()
 
+    # One batched weather call for every airport involved (origins + destinations).
+    codes = sorted({f.origin for f in flights} | {f.destination for f in flights})
+    tafs = weather.get_tafs(codes)
+
+    # Auto-learn coordinates from the weather response for any unknown airport.
+    for code, taf in tafs.items():
+        if taf:
+            remember_airport(code, taf.get("name"), taf.get("lat"), taf.get("lon"))
+
     scored: list[ScoredFlight] = []
     for flight in flights:
-        origin_taf = weather.get_taf(flight.origin)
-        dest_taf = weather.get_taf(flight.destination)
-
-        origin_wx = build_weather_window(origin_taf, flight.origin, flight.scheduled_out)
-        dest_wx = build_weather_window(dest_taf, flight.destination, flight.scheduled_out)
+        origin_wx = build_weather_window(tafs.get(flight.origin), flight.origin, flight.scheduled_out)
+        dest_wx = build_weather_window(tafs.get(flight.destination), flight.destination, flight.scheduled_out)
 
         risk = scorer.score(flight, origin_wx, dest_wx)
         scored.append(
@@ -79,22 +96,24 @@ def _persist(scored: list[ScoredFlight], session: Session | None) -> None:
             session.close()
 
 
-def _print_report(scored: list[ScoredFlight], airport: str) -> None:
+def _print_report(scored: list[ScoredFlight]) -> None:
     high_risk = [s for s in scored if s.risk.high_risk]
-    print(f"\nScored {len(scored)} departures out of {airport}.")
+    hubs = sorted({s.flight.origin for s in scored})
+    print(f"\nScored {len(scored)} departures across {len(hubs)} hubs: {', '.join(hubs)}")
     print(f"High risk of delay: {len(high_risk)}\n")
-    print(f"{'FLIGHT':<10}{'DEST':<8}{'DEPARTS (UTC)':<22}{'SCORE':<7}{'FLAG'}")
-    print("-" * 60)
+    print(f"{'FLIGHT':<10}{'ROUTE':<14}{'DEPARTS (UTC)':<22}{'SCORE':<7}{'FLAG'}")
+    print("-" * 64)
     for sf in sorted(scored, key=lambda s: s.risk.score, reverse=True):
         flag = "HIGH RISK" if sf.risk.high_risk else ""
         depart = sf.flight.scheduled_out.strftime("%Y-%m-%d %H:%M")
-        print(f"{sf.flight.ident:<10}{sf.flight.destination:<8}{depart:<22}{sf.risk.score:<7}{flag}")
+        route = f"{sf.flight.origin}->{sf.flight.destination}"
+        print(f"{sf.flight.ident:<10}{route:<14}{depart:<22}{sf.risk.score:<7}{flag}")
     print()
     for sf in high_risk:
-        print(f"  {sf.flight.ident} -> {sf.flight.destination}: {'; '.join(sf.risk.reasons)}")
+        print(f"  {sf.flight.ident} {sf.flight.origin}->{sf.flight.destination}: {'; '.join(sf.risk.reasons)}")
 
 
 if __name__ == "__main__":
     init_db()
     results = run_pipeline()
-    _print_report(results, settings.default_airport)
+    _print_report(results)
