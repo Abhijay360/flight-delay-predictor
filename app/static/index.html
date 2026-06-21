@@ -65,6 +65,34 @@
       background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
       padding: 10px 18px; font-size: 13px; display: none; }
     .empty { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
+
+    .flight.active { background: rgba(80,130,255,0.18); outline: 1px solid rgba(120,160,255,0.45); }
+
+    .details { position: absolute; top: 16px; right: 16px; width: 330px; max-width: 90vw; z-index: 15;
+      background: var(--panel); backdrop-filter: blur(14px); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden; display: none; box-shadow: 0 12px 44px rgba(0,0,0,0.55); }
+    .details.show { display: block; }
+    .details .dhead { display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+      border-bottom: 1px solid var(--border); }
+    .details .dhead .fid { font-size: 17px; font-weight: 700; }
+    .details .dhead .close { margin-left: auto; background: transparent; color: var(--muted);
+      padding: 2px 8px; font-size: 18px; line-height: 1; }
+    .details .dhead .close:hover { color: var(--text); }
+    .hrbadge { font-size: 10px; font-weight: 800; letter-spacing: 0.4px; color: #fff;
+      background: var(--red); border-radius: 6px; padding: 3px 7px; }
+    .details .dbody { padding: 14px 16px 18px; }
+    .details .scoreWrap { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+    .details .scoreBig { font-size: 34px; font-weight: 800; line-height: 1; }
+    .details .scoreLbl { font-size: 12px; color: var(--muted); }
+    .details .drow { display: flex; justify-content: space-between; gap: 12px; margin: 7px 0; font-size: 13px; }
+    .details .drow .k { color: var(--muted); flex: none; }
+    .details .drow .v { text-align: right; }
+    .details .factors { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .details .factors h4 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--muted); }
+    .details .factors ul { margin: 0; padding-left: 18px; }
+    .details .factors li { font-size: 13px; margin: 4px 0; }
+    .details .factors .none { color: var(--green); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -93,12 +121,23 @@
     <div class="row"><span class="dot" style="background:var(--green)"></span> Low risk</div>
   </div>
 
+  <div class="details" id="details">
+    <div class="dhead">
+      <span class="fid" id="dFid"></span>
+      <span class="hrbadge" id="dBadge" style="display:none">HIGH RISK OF DELAY</span>
+      <button class="close" id="dClose" title="Close">×</button>
+    </div>
+    <div class="dbody" id="dBody"></div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script src="https://unpkg.com/globe.gl"></script>
   <script>
     const POLL_MS = 6000;
     let world, pollTimer;
+    let currentArcs = [];
+    let selectedIdent = null;
 
     function initGlobe() {
       world = Globe()(document.getElementById('globeViz'))
@@ -107,7 +146,8 @@
         .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
         .arcColor('color')
         .arcAltitudeAutoScale(0.4)
-        .arcStroke(0.6)
+        .arcStroke(d => d.__sel ? 1.7 : 0.55)
+        .onArcClick(d => selectFlight(d))
         .arcDashLength(0.4)
         .arcDashGap(0.18)
         .arcDashAnimateTime(d => 2200 - Math.min(d.score, 100) * 14)
@@ -165,13 +205,14 @@
       return [...seen.values()];
     }
 
-    function renderList(arcs, threshold) {
+    function renderList(arcs) {
       const list = document.getElementById('list');
       if (!arcs.length) { list.innerHTML = '<div class="empty">No predictions yet. Click “Refresh data”.</div>'; return; }
       list.innerHTML = '';
       for (const a of arcs) {
         const row = document.createElement('div');
-        row.className = 'flight';
+        row.className = 'flight' + (a.flight_ident === selectedIdent ? ' active' : '');
+        row.dataset.ident = a.flight_ident;
         row.innerHTML = `
           <span class="dot" style="background:${a.color}"></span>
           <div class="meta">
@@ -180,10 +221,66 @@
             <div class="reasons">${a.reasons || 'no risk factors'}</div>
           </div>
           <div class="score" style="color:${a.color}">${a.score}</div>`;
-        row.onclick = () => world.pointOfView(
-          { lat: (a.startLat + a.endLat) / 2, lng: (a.startLng + a.endLng) / 2, altitude: 1.6 }, 900);
+        row.onclick = () => selectFlight(a);
         list.appendChild(row);
       }
+    }
+
+    function fmtTime(iso) {
+      try {
+        return new Date(iso).toLocaleString('en-US',
+          { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC';
+      } catch (e) { return iso; }
+    }
+
+    function renderDetails(a) {
+      document.getElementById('dFid').textContent = a.flight_ident;
+      const badge = document.getElementById('dBadge');
+      badge.style.display = a.high_risk ? 'inline-block' : 'none';
+
+      const factors = (a.reasons || '').split(';').map(s => s.trim()).filter(Boolean);
+      const factorsHtml = factors.length
+        ? `<ul>${factors.map(f => `<li>${f}</li>`).join('')}</ul>`
+        : `<div class="none">No risk factors detected — clear conditions.</div>`;
+
+      document.getElementById('dBody').innerHTML = `
+        <div class="scoreWrap">
+          <span class="scoreBig" style="color:${a.color}">${a.score}</span>
+          <span class="scoreLbl">risk points${a.high_risk ? ' · flagged high risk' : ''}</span>
+        </div>
+        <div class="drow"><span class="k">Origin</span><span class="v">${a.origin_name} (${a.origin})</span></div>
+        <div class="drow"><span class="k">Destination</span><span class="v">${a.destination_name} (${a.destination})</span></div>
+        <div class="drow"><span class="k">Scheduled departure</span><span class="v">${fmtTime(a.scheduled_out)}</span></div>
+        <div class="factors">
+          <h4>Delay risk factors</h4>
+          ${factorsHtml}
+        </div>`;
+      document.getElementById('details').classList.add('show');
+    }
+
+    function selectFlight(a) {
+      selectedIdent = a.flight_ident;
+      currentArcs.forEach(x => x.__sel = (x.flight_ident === selectedIdent));
+      world.arcsData(currentArcs);                 // refresh to thicken the selected arc
+      world.controls().autoRotate = false;         // hold still so the user can read it
+      world.pointOfView(
+        { lat: (a.startLat + a.endLat) / 2, lng: (a.startLng + a.endLng) / 2, altitude: 1.25 }, 1000);
+      renderDetails(a);
+      markActiveRow();
+    }
+
+    function closeDetails() {
+      selectedIdent = null;
+      currentArcs.forEach(x => x.__sel = false);
+      world.arcsData(currentArcs);
+      world.controls().autoRotate = true;
+      document.getElementById('details').classList.remove('show');
+      markActiveRow();
+    }
+
+    function markActiveRow() {
+      document.querySelectorAll('.flight').forEach(r =>
+        r.classList.toggle('active', r.dataset.ident === selectedIdent));
     }
 
     async function loadData() {
@@ -191,11 +288,22 @@
         const res = await fetch('/globe-data');
         const data = await res.json();
         const arcs = data.arcs || [];
+        currentArcs = arcs;
+
+        // Preserve any active selection across auto-refresh polls.
+        const selArc = selectedIdent ? arcs.find(a => a.flight_ident === selectedIdent) : null;
+        arcs.forEach(a => a.__sel = (selArc && a.flight_ident === selectedIdent));
+
         world.arcsData(arcs).pointsData(buildPoints(arcs));
         document.getElementById('statTotal').textContent = arcs.length;
         document.getElementById('statRisk').textContent = arcs.filter(a => a.high_risk).length;
-        renderList(arcs, data.threshold);
-        if (!arcs.length) await runPipeline();  // auto-populate on first ever load
+        renderList(arcs);
+
+        if (selArc) renderDetails(selArc);          // refresh panel with latest data
+        else if (selectedIdent) closeDetails();     // selected flight no longer present
+        markActiveRow();
+
+        if (!arcs.length) await runPipeline();       // auto-populate on first ever load
       } catch (e) { showToast('Could not reach backend'); setTimeout(hideToast, 2500); }
     }
 
@@ -218,6 +326,8 @@
     }
 
     document.getElementById('runBtn').onclick = runPipeline;
+    document.getElementById('dClose').onclick = closeDetails;
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetails(); });
 
     fetch('/info').then(r => r.json()).then(d => {
       document.getElementById('hub').textContent =
