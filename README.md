@@ -7,6 +7,11 @@ storing predictions so they can later be compared against actual outcomes.
 It flags a flight as **High Risk of Delay** *before* the airline officially
 updates its status.
 
+![Flight Delay Predictor globe dashboard](docs/flight-globe-dashboard.png)
+
+The dashboard renders each scored flight as an animated, risk-colored arc on a
+rotating 3D globe (red = high risk of delay), with a live-updating sidebar.
+
 ## How it works
 
 ```
