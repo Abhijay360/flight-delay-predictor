@@ -135,10 +135,26 @@
   <script src="https://unpkg.com/globe.gl"></script>
   <script>
     const POLL_MS = 6000;
+    const STALE_MS = 10 * 60 * 1000;   // on load, refetch live data if last run is older than this
     let world, pollTimer;
     let currentArcs = [];
     let selectedIdent = null;
-    let triedAutoRun = false;
+    let didInitialFetch = false;
+    let threshold = 70;
+
+    const SOURCE_LABELS = {
+      airlabs: 'Live flights (AirLabs)',
+      opensky: 'Live flights (OpenSky)',
+      mock: 'Sample flight data',
+      airlabs_fallback: 'Sample data · AirLabs unavailable',
+      opensky_fallback: 'Sample data · OpenSky unavailable',
+    };
+
+    function setSubtitle(sourceKey) {
+      const label = SOURCE_LABELS[sourceKey] || 'Sample flight data';
+      document.getElementById('hub').textContent =
+        `${label} · live weather · high-risk ≥ ${threshold} pts`;
+    }
 
     function initGlobe() {
       world = Globe()(document.getElementById('globeViz'))
@@ -284,12 +300,13 @@
         r.classList.toggle('active', r.dataset.ident === selectedIdent));
     }
 
-    async function loadData() {
+    async function loadData(isInitial = false) {
       try {
         const res = await fetch('/globe-data');
         const data = await res.json();
         const arcs = data.arcs || [];
         currentArcs = arcs;
+        if (typeof data.threshold === 'number') threshold = data.threshold;
 
         // Preserve any active selection across auto-refresh polls.
         const selArc = selectedIdent ? arcs.find(a => a.flight_ident === selectedIdent) : null;
@@ -299,14 +316,19 @@
         document.getElementById('statTotal').textContent = arcs.length;
         document.getElementById('statRisk').textContent = arcs.filter(a => a.high_risk).length;
         renderList(arcs);
+        if (data.source) setSubtitle(data.source);  // reflect what's actually on screen
 
         if (selArc) renderDetails(selArc);          // refresh panel with latest data
         else if (selectedIdent) closeDetails();     // selected flight no longer present
         markActiveRow();
 
-        if (!arcs.length && !triedAutoRun) {         // auto-populate once on first load
-          triedAutoRun = true;
-          await runPipeline();
+        // On first load, fetch fresh live data when there's none or it's stale,
+        // so the globe shows current conditions instead of a cached/old run.
+        if (isInitial && !didInitialFetch) {
+          didInitialFetch = true;
+          const gen = data.generated_at ? new Date(data.generated_at + 'Z') : null;
+          const stale = !gen || (Date.now() - gen.getTime() > STALE_MS);
+          if (!arcs.length || stale) await runPipeline();
         }
       } catch (e) { showToast('Could not reach backend'); setTimeout(hideToast, 2500); }
     }
@@ -333,19 +355,15 @@
     document.getElementById('dClose').onclick = closeDetails;
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetails(); });
 
+    // Initial subtitle from the configured source; loadData() then overrides it
+    // with the source of the data actually displayed (incl. fallback state).
     fetch('/info').then(r => r.json()).then(d => {
-      const sources = {
-        airlabs: 'Live flights (AirLabs)',
-        opensky: 'Live flights (OpenSky)',
-        mock: 'Sample flight data',
-      };
-      const source = sources[d.flight_source] || 'Sample flight data';
-      document.getElementById('hub').textContent =
-        `${source} · live weather · high-risk ≥ ${d.high_risk_threshold} pts`;
+      threshold = d.high_risk_threshold;
+      setSubtitle(d.flight_source);
     });
 
     initGlobe();
-    loadData();
+    loadData(true);
     setupPolling();
   </script>
 </body>

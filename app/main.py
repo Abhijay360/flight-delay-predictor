@@ -118,7 +118,12 @@ def globe_data(session: Session = Depends(get_session)) -> dict:
     """
     latest_ts = session.scalar(select(func.max(Prediction.predicted_at)))
     if latest_ts is None:
-        return {"threshold": settings.high_risk_threshold, "generated_at": None, "arcs": []}
+        return {
+            "threshold": settings.high_risk_threshold,
+            "generated_at": None,
+            "source": None,
+            "arcs": [],
+        }
 
     rows = list(
         session.scalars(
@@ -156,6 +161,7 @@ def globe_data(session: Session = Depends(get_session)) -> dict:
     return {
         "threshold": settings.high_risk_threshold,
         "generated_at": latest_ts.isoformat(),
+        "source": rows[0].source if rows else None,
         "arcs": arcs,
     }
 

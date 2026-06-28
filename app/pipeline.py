@@ -15,7 +15,7 @@ from app.db import SessionLocal, init_db
 from app.models import Flight, Prediction, ScoredFlight
 from app.parsing.taf import build_weather_window
 from app.scoring.risk import get_default_scorer
-from app.sources.flights import MockFlightProvider, get_default_provider
+from app.sources.flights import MockFlightProvider, active_source_label, get_default_provider
 from app.sources.weather import NoaaWeatherClient
 
 
@@ -39,9 +39,13 @@ def run_pipeline(
     else:
         flights = provider.get_all_departures()
 
+    source = active_source_label()
+
     # Safety net: if a live source returns nothing (bad key, quota, outage),
-    # fall back to the bundled sample flights so the dashboard is never blank.
+    # fall back to the bundled sample flights so the dashboard is never blank —
+    # and label the data honestly so the UI can say the live source was down.
     if not flights and not isinstance(provider, MockFlightProvider):
+        source = f"{source}_fallback"
         mock = MockFlightProvider()
         flights = (
             mock.get_scheduled_departures(airport.upper(), limit or settings.flight_limit)
@@ -82,12 +86,12 @@ def run_pipeline(
         )
 
     if persist:
-        _persist(scored, session)
+        _persist(scored, source, session)
 
     return scored
 
 
-def _persist(scored: list[ScoredFlight], session: Session | None) -> None:
+def _persist(scored: list[ScoredFlight], source: str, session: Session | None) -> None:
     owns_session = session is None
     session = session or SessionLocal()
     try:
@@ -103,6 +107,7 @@ def _persist(scored: list[ScoredFlight], session: Session | None) -> None:
                     predicted_high_risk=sf.risk.high_risk,
                     reasons="; ".join(sf.risk.reasons),
                     predicted_at=now,
+                    source=source,
                 )
             )
         session.commit()

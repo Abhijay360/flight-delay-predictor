@@ -75,6 +75,9 @@ class Prediction(Base):
     predicted_high_risk: Mapped[bool] = mapped_column(Boolean)
     reasons: Mapped[str] = mapped_column(String, default="")
     predicted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Where this prediction's flight data came from: "airlabs" / "opensky" /
+    # "mock", or e.g. "airlabs_fallback" when a live source returned nothing.
+    source: Mapped[str] = mapped_column(String, default="mock")
 
     # Filled in later by the backfill step.
     actual_delay_minutes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

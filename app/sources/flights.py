@@ -258,20 +258,24 @@ class AirLabsFlightProvider:
         iata = icao_to_iata(airport)
         if not iata:
             return []
-        seen: set[tuple[str, str]] = set()
-        flights: list[Flight] = []
+        # Collapse codeshares: one physical departure is sold under several flight
+        # numbers (e.g. BA/AA/IB). They share a destination + scheduled time, so we
+        # key on that and keep the operating carrier (records without a codeshare
+        # marker) rather than drawing one arc per marketing number.
+        chosen: dict[tuple[str, datetime], tuple[bool, Flight]] = {}
+        order: list[tuple[str, datetime]] = []
         for record in self._fetch_schedules(iata):
             flight = self._to_flight(record, airport)
             if flight is None:
                 continue
-            key = (flight.ident, flight.destination)
-            if key in seen:
-                continue
-            seen.add(key)
-            flights.append(flight)
-            if len(flights) >= limit:
-                break
-        return flights
+            is_codeshare = bool(record.get("cs_flight_iata") or record.get("cs_flight_number"))
+            key = (flight.destination, flight.scheduled_out)
+            if key not in chosen:
+                chosen[key] = (is_codeshare, flight)
+                order.append(key)
+            elif chosen[key][0] and not is_codeshare:
+                chosen[key] = (is_codeshare, flight)  # prefer the operating carrier
+        return [chosen[k][1] for k in order][:limit]
 
     def get_all_departures(self) -> list[Flight]:
         flights: list[Flight] = []
