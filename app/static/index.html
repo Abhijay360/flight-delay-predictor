@@ -138,6 +138,7 @@
     let world, pollTimer;
     let currentArcs = [];
     let selectedIdent = null;
+    let triedAutoRun = false;
 
     function initGlobe() {
       world = Globe()(document.getElementById('globeViz'))
@@ -303,7 +304,10 @@
         else if (selectedIdent) closeDetails();     // selected flight no longer present
         markActiveRow();
 
-        if (!arcs.length) await runPipeline();       // auto-populate on first ever load
+        if (!arcs.length && !triedAutoRun) {         // auto-populate once on first load
+          triedAutoRun = true;
+          await runPipeline();
+        }
       } catch (e) { showToast('Could not reach backend'); setTimeout(hideToast, 2500); }
     }
 
@@ -330,8 +334,14 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetails(); });
 
     fetch('/info').then(r => r.json()).then(d => {
+      const sources = {
+        airlabs: 'Live flights (AirLabs)',
+        opensky: 'Live flights (OpenSky)',
+        mock: 'Sample flight data',
+      };
+      const source = sources[d.flight_source] || 'Sample flight data';
       document.getElementById('hub').textContent =
-        `Multiple US hubs · high-risk ≥ ${d.high_risk_threshold} pts`;
+        `${source} · live weather · high-risk ≥ ${d.high_risk_threshold} pts`;
     });
 
     initGlobe();

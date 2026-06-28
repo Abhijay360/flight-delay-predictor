@@ -21,11 +21,18 @@ NOAA TAF forecasts (live, no key) ──┘                                     
                                                             (next day) backfill actual outcomes ─► /accuracy report
 ```
 
-1. **Flight data** — `MockFlightProvider` serves ~20 cached Boston Logan
-   (`KBOS`) departures with times relative to now. It implements the same
-   interface as a future `AeroApiFlightProvider`, so swapping to live
-   [AeroAPI](https://www.flightaware.com/commercial/aeroapi/) data is a
-   one-class change.
+1. **Flight data** — three interchangeable providers behind one interface,
+   selected automatically (AirLabs → OpenSky → mock) by which keys are set:
+   - `AirLabsFlightProvider` (**recommended**) pulls real **scheduled**
+     departures with delay status from the [AirLabs](https://airlabs.co/) API
+     (`/schedules`). Free key, no credit card. Because it returns *future*
+     schedules, flights are scored against the matching TAF forecast window.
+   - `OpenSkyFlightProvider` pulls **real departures** from the
+     [OpenSky Network](https://opensky-network.org/) via OAuth2. Its feed is
+     batch-updated nightly, so it serves the most recent available real flights
+     (often the prior day) rather than future schedules.
+   - `MockFlightProvider` serves bundled sample departures across 10 US hubs
+     (times relative to now) — the no-signup default.
 2. **Weather data** — `NoaaWeatherClient` pulls **TAF** forecasts from the free,
    no-key [NOAA Aviation Weather Center API](https://aviationweather.gov/data/api/).
 3. **TAF parsing** — `app/parsing/taf.py` selects the forecast segment(s)
@@ -70,11 +77,28 @@ uvicorn app.main:app --reload
 | `GET` | `/predictions/high-risk` | Only flights flagged high risk |
 | `GET` | `/accuracy` | Precision/recall once actuals are backfilled |
 
+### Live flight data
+
+By default the app uses bundled sample flights (no signup). For real flights,
+the recommended source is **AirLabs** (real scheduled departures + delay status):
+
+1. Sign up free at [airlabs.co/signup](https://airlabs.co/signup) — no credit
+   card, 1,000 requests/month.
+2. Copy your API key from the dashboard.
+3. Copy `.env.example` to `.env`, set `FDP_AIRLABS_API_KEY`, and restart.
+
+The dashboard subtitle switches to **"Live flights (AirLabs)"**. AirLabs keys on
+IATA codes; the app maps them to/from ICAO for weather + globe coordinates. Each
+full 10-hub refresh uses ~10 requests (the auto-refresh poll reads the DB only).
+
+OpenSky is also supported as an alternative — set `FDP_OPENSKY_CLIENT_ID` /
+`FDP_OPENSKY_CLIENT_SECRET` instead (see `.env.example`).
+
 ## Configuration
 
 All settings live in `app/config.py` and can be overridden with `FDP_`-prefixed
 environment variables (e.g. `FDP_DEFAULT_AIRPORT=KSFO`,
-`FDP_HIGH_RISK_THRESHOLD=60`).
+`FDP_HIGH_RISK_THRESHOLD=60`, `FDP_FLIGHT_SOURCE=mock`).
 
 ## Tests
 
@@ -84,8 +108,7 @@ pytest
 
 ## Roadmap
 
-- Swap `MockFlightProvider` for live AeroAPI data.
+- Add AeroAPI as a provider for true *future* scheduled departures.
 - Implement the inbound-delay ("ripple effect") lookup via tail-number tracking.
 - Add a backfill job that records actual delays the following day.
 - Replace the rule-based scorer with a trained `scikit-learn` model.
-- Add a web dashboard.

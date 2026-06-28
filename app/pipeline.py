@@ -15,7 +15,7 @@ from app.db import SessionLocal, init_db
 from app.models import Flight, Prediction, ScoredFlight
 from app.parsing.taf import build_weather_window
 from app.scoring.risk import get_default_scorer
-from app.sources.flights import get_default_provider
+from app.sources.flights import MockFlightProvider, get_default_provider
 from app.sources.weather import NoaaWeatherClient
 
 
@@ -39,6 +39,16 @@ def run_pipeline(
     else:
         flights = provider.get_all_departures()
 
+    # Safety net: if a live source returns nothing (bad key, quota, outage),
+    # fall back to the bundled sample flights so the dashboard is never blank.
+    if not flights and not isinstance(provider, MockFlightProvider):
+        mock = MockFlightProvider()
+        flights = (
+            mock.get_scheduled_departures(airport.upper(), limit or settings.flight_limit)
+            if airport
+            else mock.get_all_departures()
+        )
+
     weather = NoaaWeatherClient()
     scorer = get_default_scorer()
 
@@ -51,10 +61,15 @@ def run_pipeline(
         if taf:
             remember_airport(code, taf.get("name"), taf.get("lat"), taf.get("lon"))
 
+    # TAFs forecast the future, so for already-departed (historical) flights we
+    # assess current conditions instead of their past departure time.
+    now = datetime.now(timezone.utc)
+
     scored: list[ScoredFlight] = []
     for flight in flights:
-        origin_wx = build_weather_window(tafs.get(flight.origin), flight.origin, flight.scheduled_out)
-        dest_wx = build_weather_window(tafs.get(flight.destination), flight.destination, flight.scheduled_out)
+        wx_time = flight.scheduled_out if flight.scheduled_out > now else now
+        origin_wx = build_weather_window(tafs.get(flight.origin), flight.origin, wx_time)
+        dest_wx = build_weather_window(tafs.get(flight.destination), flight.destination, wx_time)
 
         risk = scorer.score(flight, origin_wx, dest_wx)
         scored.append(

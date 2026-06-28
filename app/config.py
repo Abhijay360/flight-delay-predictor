@@ -39,5 +39,37 @@ class Settings(BaseSettings):
     # Outbound HTTP timeout (seconds).
     http_timeout: float = 15.0
 
+    # --- Flight data source ---------------------------------------------------
+    # "auto": prefer AirLabs, then OpenSky, then the bundled mock dataset,
+    #         depending on which credentials are configured.
+    # "mock" / "airlabs" / "opensky": force a specific source.
+    flight_source: str = "auto"
+
+    # AirLabs (free plan, no card): real scheduled departures + delay status.
+    # Get a key at https://airlabs.co/signup ; set FDP_AIRLABS_API_KEY.
+    airlabs_api_key: str = ""
+    airlabs_base_url: str = "https://airlabs.co/api/v9"
+    airlabs_per_hub_limit: int = 8
+
+    # Hubs to pull departures for when scoring "all hubs".
+    hubs: list[str] = [
+        "KBOS", "KJFK", "KLAX", "KORD", "KATL", "KSFO", "KSEA", "KDFW", "KDEN", "KMIA",
+    ]
+
+    # OpenSky Network (free account; create an API client for these — no card).
+    # Set via env: FDP_OPENSKY_CLIENT_ID / FDP_OPENSKY_CLIENT_SECRET.
+    opensky_client_id: str = ""
+    opensky_client_secret: str = ""
+    opensky_base_url: str = "https://opensky-network.org/api"
+    opensky_token_url: str = (
+        "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+    )
+    # How far back to look for departures (OpenSky data is batch-updated nightly,
+    # so recent windows are often empty; the provider walks back day-by-day).
+    opensky_lookback_hours: int = 2
+    opensky_max_lookback_days: int = 3
+    # Cap departures kept per hub so the globe stays readable and runs stay fast.
+    opensky_per_hub_limit: int = 8
+
 
 settings = Settings()

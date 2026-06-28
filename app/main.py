@@ -26,6 +26,7 @@ from app.config import settings
 from app.db import get_session, init_db
 from app.models import Prediction, ScoredFlight
 from app.pipeline import run_pipeline
+from app.sources.flights import active_source_label
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -49,6 +50,7 @@ def info() -> dict:
         "service": "Flight Delay Predictor",
         "default_airport": settings.default_airport,
         "high_risk_threshold": settings.high_risk_threshold,
+        "flight_source": active_source_label(),
         "endpoints": ["/run", "/predictions", "/predictions/high-risk", "/globe-data", "/accuracy"],
     }
 

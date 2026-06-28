@@ -66,6 +66,31 @@ AIRPORTS: dict[str, Airport] = {
     "PANC": Airport("PANC", "Anchorage", 61.1743, -149.9962),
 }
 
+# ICAO -> IATA for the airports above. Used to talk to APIs (e.g. AirLabs) that
+# key on IATA codes, while the rest of the system uses ICAO.
+ICAO_TO_IATA: dict[str, str] = {
+    "KBOS": "BOS", "KJFK": "JFK", "KLGA": "LGA", "KEWR": "EWR", "KORD": "ORD",
+    "KMDW": "MDW", "KATL": "ATL", "KSFO": "SFO", "KLAX": "LAX", "KSAN": "SAN",
+    "KDFW": "DFW", "KDAL": "DAL", "KIAH": "IAH", "KHOU": "HOU", "KDTW": "DTW",
+    "KFLL": "FLL", "KIAD": "IAD", "KDCA": "DCA", "KPHL": "PHL", "KMCO": "MCO",
+    "KSLC": "SLC", "KSEA": "SEA", "KMIA": "MIA", "KDEN": "DEN", "KMSP": "MSP",
+    "KRSW": "RSW", "KCLT": "CLT", "KPHX": "PHX", "KLAS": "LAS", "KBWI": "BWI",
+    "KTPA": "TPA", "KPDX": "PDX", "KAUS": "AUS", "KBNA": "BNA", "KMCI": "MCI",
+    "KSTL": "STL", "KSJC": "SJC", "KOAK": "OAK", "KSAT": "SAT", "KCLE": "CLE",
+    "KPIT": "PIT", "KIND": "IND", "KRDU": "RDU", "KMEM": "MEM", "PHNL": "HNL",
+    "PANC": "ANC",
+}
+IATA_TO_ICAO: dict[str, str] = {v: k for k, v in ICAO_TO_IATA.items()}
+
+
+def icao_to_iata(icao: str) -> str | None:
+    return ICAO_TO_IATA.get(icao.upper())
+
+
+def iata_to_icao(iata: str) -> str | None:
+    return IATA_TO_ICAO.get(iata.upper())
+
+
 # Coordinates discovered at runtime from the NOAA TAF response.
 _LEARNED: dict[str, Airport] = {}
 
